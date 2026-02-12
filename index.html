@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Mes vidéos</title>
+</head>
+<body>
+    <h1>Vidéos dans processed et recorded</h1>
+    <div id="videosContainer"></div>
+
+    <script>
+        // Les dossiers à parcourir
+        const folders = ["processed", "recorded"];
+        const container = document.getElementById("videosContainer");
+
+        folders.forEach(folder => {
+            fetch(`/${folder}/`)  // autoindex fournit la liste HTML
+                .then(res => res.text())
+                .then(html => {
+                    // Crée un DOM temporaire pour parser les liens
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, "text/html");
+                    const links = Array.from(doc.querySelectorAll("a"))
+                                       .map(a => a.getAttribute("href"))
+                                       .filter(href => href.endsWith(".mp4")); // seulement mp4
+
+                    if (links.length > 0) {
+                        const section = document.createElement("div");
+                        section.innerHTML = `<h2>${folder}</h2>`;
+                        links.forEach(file => {
+                            const video = document.createElement("video");
+                            video.width = 640;
+                            video.height = 360;
+                            video.controls = true;
+                            video.src = `/${folder}/${file}`;
+                            section.appendChild(video);
+                            section.appendChild(document.createElement("br"));
+                        });
+                        container.appendChild(section);
+                    }
+                });
+        });
+    </script>
+</body>
+</html>
