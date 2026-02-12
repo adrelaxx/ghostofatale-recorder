@@ -2,19 +2,17 @@ server {
     listen 80;
     server_name _;
 
-    root /root/videos;
-    index index.html;
+    location /videos/ {
+        alias /home/videos/;
 
-    # Chargement des MIME types
-    include /etc/nginx/mime.types;
+        autoindex on;
+        autoindex_exact_size off;
+        autoindex_localtime on;
 
-    location / {
-        try_files $uri $uri/ =404;
-    }
+        include /etc/nginx/mime.types;
 
-    # Support vidéo MP4
-    location ~ \.mp4$ {
-        types { video/mp4 mp4; }
+        # streaming vidéo
         add_header Accept-Ranges bytes;
     }
 }
+
