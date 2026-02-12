@@ -1,0 +1,20 @@
+server {
+    listen 80;
+    server_name _;
+
+    root /root/videos;
+    index index.html;
+
+    # Chargement des MIME types
+    include /etc/nginx/mime.types;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # Support vidéo MP4
+    location ~ \.mp4$ {
+        types { video/mp4 mp4; }
+        add_header Accept-Ranges bytes;
+    }
+}
