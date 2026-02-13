@@ -10,14 +10,12 @@ import time
 import requests
 import config
 
-
 class TwitchResponseStatus(enum.Enum):
     ONLINE = 0
     OFFLINE = 1
     NOT_FOUND = 2
     UNAUTHORIZED = 3
     ERROR = 4
-
 
 class TwitchRecorder:
     def __init__(self):
@@ -59,7 +57,8 @@ class TwitchRecorder:
         try:
             logging.info("Starting 480p compression...")
 
-            subprocess.call([
+            # On capture le code de retour pour vérifier si FFmpeg réussit
+            return_code = subprocess.call([
                 self.ffmpeg_path,
                 "-y",
                 "-i", input_file,
@@ -69,15 +68,19 @@ class TwitchRecorder:
                 "-crf", "30",
                 "-profile:v", "high",
                 "-level", "3.1",
-                "-pix_fmt", "yuv420p",
+                "-pix_fmt", "yuv420p", # CORRECTION : minuscule ici
                 "-movflags", "+faststart",
                 "-c:a", "aac",
                 "-b:a", "64k",
                 output_file
             ])
 
-            logging.info("Compression finished. Removing original file.")
-            os.remove(input_file)
+            # Sécurité : On ne supprime que si FFmpeg a terminé sans erreur (code 0)
+            if return_code == 0:
+                logging.info("Compression finished successfully. Removing original file.")
+                os.remove(input_file)
+            else:
+                logging.error("FFmpeg failed with return code %s. Original file preserved.", return_code)
 
         except Exception as e:
             logging.error("Compression error: %s", e)
@@ -111,7 +114,7 @@ class TwitchRecorder:
             status, info = self.check_user()
 
             if status == TwitchResponseStatus.OFFLINE:
-                logging.info("User offline...")
+                logging.info("%s currently offline, checking again in %s seconds", self.username, self.refresh)
                 time.sleep(self.refresh)
 
             elif status == TwitchResponseStatus.UNAUTHORIZED:
@@ -125,7 +128,6 @@ class TwitchRecorder:
             elif status == TwitchResponseStatus.ONLINE:
                 logging.info("User ONLINE. Recording...")
 
-                channel = info["data"][0]
                 filename = (
                     self.username + " - " +
                     datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S") +
@@ -135,6 +137,7 @@ class TwitchRecorder:
                 recorded_file = os.path.join(recorded_path, filename)
                 processed_file = os.path.join(processed_path, filename)
 
+                # Enregistrement via Streamlink
                 subprocess.call([
                     "streamlink",
                     "--twitch-disable-ads",
@@ -143,7 +146,7 @@ class TwitchRecorder:
                     "-o", recorded_file
                 ])
 
-                logging.info("Live ended. Starting compression...")
+                logging.info("Stream ended. Starting compression...")
 
                 if os.path.exists(recorded_file):
                     self.compress_video(recorded_file, processed_file)
@@ -151,12 +154,10 @@ class TwitchRecorder:
                 logging.info("Back to monitoring...")
                 time.sleep(self.refresh)
 
-
 def main(argv):
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, format='%(message)s')
     recorder = TwitchRecorder()
     recorder.run()
-
 
 if __name__ == "__main__":
     main(sys.argv[1:])
