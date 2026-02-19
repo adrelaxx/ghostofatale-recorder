@@ -1,54 +1,83 @@
-import os
-import sys
 import whisper
-from pydub import AudioSegment
-from pydub.utils import make_chunks
+import sys
+import os
+import torch
+from datetime import timedelta
+from moviepy import VideoFileClip
 
-def transcribe_large_file(file_path):
-    # 1. Création du dossier de sortie
+def format_timestamp(seconds):
+    """Convertit les secondes en format [HH:MM:SS]"""
+    return str(timedelta(seconds=int(seconds)))
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: python transcribe_cpu.py <video_file>")
+        sys.exit(1)
+
+    video_path = sys.argv[1]
+    
+    # 1. Gestion des répertoires
     output_dir = "transcript"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-
-    # Nom de base pour le fichier de sortie
-    base_name = os.path.splitext(os.path.basename(file_path))[0]
+    
+    base_name = os.path.splitext(os.path.basename(video_path))[0]
     output_file = os.path.join(output_dir, f"{base_name}.txt")
 
-    print(f"--- Chargement du modèle Whisper ---")
-    model = whisper.load_model("base") # Vous pouvez utiliser 'small' ou 'medium' pour plus de précision
+    # 2. Configuration CPU & Modèle
+    # On force le CPU même si un GPU est présent pour répondre à ta demande
+    device = "cpu"
+    print(f"--- Mode: CPU uniquement | Modèle: Small ---")
+    
+    print("Chargement du modèle Whisper (patience...)")
+    model = whisper.load_model("small", device=device)
 
-    print(f"--- Chargement de l'audio (cela peut prendre du temps pour 10h) ---")
-    audio = AudioSegment.from_file(file_path)
-
-    # 2. Découpage en morceaux de 20 minutes (1200000 ms)
-    # C'est plus sûr pour la mémoire vive
-    chunk_length_ms = 1200000 
-    chunks = make_chunks(audio, chunk_length_ms)
-
-    print(f"--- Début de la transcription ({len(chunks)} segments) ---")
+    # 3. Analyse de la vidéo
+    print("Analyse de la durée du fichier...")
+    video = VideoFileClip(video_path)
+    duration = video.duration
+    
+    # Découpage par tranches de 30 minutes (1800s) pour la RAM
+    chunk_size = 1800 
+    
+    print(f"Début de la transcription vers : {output_file}")
     
     with open(output_file, "w", encoding="utf-8") as f:
-        for i, chunk in enumerate(chunks):
-            print(f"Transcription du segment {i+1}/{len(chunks)}...")
+        current_time = 0
+        while current_time < duration:
+            end_time = min(current_time + chunk_size, duration)
+            temp_audio = "temp_segment_audio.wav"
             
-            # Export temporaire du morceau
-            temp_chunk_path = "temp_chunk.wav"
-            chunk.export(temp_chunk_path, format="wav")
-
-            # Transcription
-            result = model.transcribe(temp_chunk_path, fp16=False)
+            print(f"\nTraitement du segment : {format_timestamp(current_time)} -> {format_timestamp(end_time)}")
             
-            # Écriture immédiate dans le fichier
-            f.write(result["text"] + " ")
-            f.flush() # Force l'écriture sur le disque
+            # Extraction audio via MoviePy (évite les erreurs audioop de Python 3.13)
+            subclip = video.subclip(current_time, end_time)
+            subclip.audio.write_audiofile(temp_audio, codec='pcm_s16le', verbose=False, logger=None)
+            
+            # Transcription du segment (langue forcée FR)
+            # fp16=False est obligatoire sur CPU
+            result = model.transcribe(temp_audio, language="fr", fp16=False)
+            
+            # Écriture avec calcul des timestamps globaux
+            for segment in result["segments"]:
+                start_glob = format_timestamp(segment["start"] + current_time)
+                end_glob = format_timestamp(segment["end"] + current_time)
+                text = segment["text"].strip()
+                f.write(f"[{start_glob} - {end_glob}] {text}\n")
+            
+            # Sauvegarde immédiate sur le disque
+            f.flush()
+            
+            # Nettoyage du fichier temporaire
+            if os.path.exists(temp_audio):
+                os.remove(temp_audio)
+            
+            current_time += chunk_size
+            progression = round((current_time / duration) * 100, 1)
+            print(f">>> Progression globale : {min(progression, 100.0)}%")
 
-            # Nettoyage
-            os.remove(temp_chunk_path)
-
-    print(f"--- Terminé ! Le transcript est disponible ici : {output_file} ---")
+    video.close()
+    print(f"\nFélicitations ! Transcription terminée dans : {output_file}")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python transcribe.py nom_du_fichier.mp4")
-    else:
-        transcribe_large_file(sys.argv[1])
+    main()
