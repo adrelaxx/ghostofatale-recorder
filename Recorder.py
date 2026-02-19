@@ -1,7 +1,6 @@
-import whisper
+import stable_whisper
 import sys
 import os
-import torch
 from datetime import timedelta
 from moviepy import VideoFileClip
 
@@ -20,20 +19,17 @@ def main():
         print("Erreur : fichier vidéo introuvable.")
         sys.exit(1)
 
-    # 1. Dossier de sortie
     output_dir = "transcript"
     os.makedirs(output_dir, exist_ok=True)
 
     base_name = os.path.splitext(os.path.basename(video_path))[0]
     output_file = os.path.join(output_dir, f"{base_name}.txt")
 
-    # 2. Configuration CPU & Modèle Small
-    device = "cpu"
-    print(f"--- Mode: CPU | Modèle: Small ---")
-    print("Chargement du modèle Whisper...")
-    model = whisper.load_model("small", device=device)
+    # 1. Utilisation de stable-ts (plus précis sur les coupures de voix)
+    print(f"--- Mode: CPU | Modèle: Small (Stable-TS) ---")
+    print("Chargement du modèle...")
+    model = stable_whisper.load_model("small", device="cpu")
 
-    # 3. Chargement vidéo
     print("Analyse de la durée...")
     video = VideoFileClip(video_path)
     duration = video.duration
@@ -50,32 +46,30 @@ def main():
 
             print(f"\nTraitement : {format_timestamp(current_time)} -> {format_timestamp(end_time)}")
 
-            # MoviePy 2.0+
-            segment = video.subclipped(current_time, end_time)
+            segment_video = video.subclipped(current_time, end_time)
+            segment_video.audio.write_audiofile(temp_audio, codec="pcm_s16le")
 
-            # Export audio (compatible v2.0+)
-            segment.audio.write_audiofile(
-                temp_audio,
-                codec="pcm_s16le"
-            )
-
-            # Transcription
+            # 2. Transcription optimisée pour plusieurs voix
+            # condition_on_previous_text=False empêche le modèle de s'auto-influencer
             result = model.transcribe(
-                temp_audio,
-                language="fr",
-                fp16=False
+                temp_audio, 
+                language="fr", 
+                fp16=False,
+                condition_on_previous_text=False,
+                regroup=True # Regroupe les mots de façon logique
             )
 
-            # Écriture avec timestamps globaux
-            for seg in result["segments"]:
-                start_glob = format_timestamp(seg["start"] + current_time)
-                end_glob = format_timestamp(seg["end"] + current_time)
-                text = seg["text"].strip()
-                f.write(f"[{start_glob} - {end_glob}] {text}\n")
+            # 3. Écriture avec sauts de ligne marqués
+            for seg in result.segments:
+                start_glob = format_timestamp(seg.start + current_time)
+                end_glob = format_timestamp(seg.end + current_time)
+                text = seg.text.strip()
+                
+                # On ajoute un saut de ligne supplémentaire pour séparer visuellement les blocs
+                f.write(f"[{start_glob} - {end_glob}] {text}\n\n")
 
             f.flush()
 
-            # Nettoyage
             if os.path.exists(temp_audio):
                 os.remove(temp_audio)
 
@@ -84,8 +78,7 @@ def main():
             print(f">>> Progression : {progress}%")
 
     video.close()
-    print(f"\nFini ! Résultat : {output_file}")
-
+    print(f"\nTranscription terminée ! Fichier : {output_file}")
 
 if __name__ == "__main__":
     main()
