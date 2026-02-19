@@ -33,7 +33,7 @@ def main():
     print("Analyse de la durée...")
     video = VideoFileClip(video_path)
     duration = video.duration
-    chunk_size = 1800  # Segments de 30 minutes pour la stabilité
+    chunk_size = 1800  # Segments de 30 minutes
     
     print(f"Début de la transcription vers : {output_file}")
     
@@ -46,9 +46,10 @@ def main():
             print(f"\nTraitement : {format_timestamp(current_time)} -> {format_timestamp(end_time)}")
             
             # --- CORRECTION MOVIEPY V2.0+ ---
-            # On utilise subclipped() au lieu de subclip()
             segment = video.subclipped(current_time, end_time)
-            segment.audio.write_audiofile(temp_audio, codec='pcm_s16le', verbose=False, logger=None)
+            
+            # Note: On a enlevé 'verbose' et 'logger' qui font planter MoviePy 2.0
+            segment.audio.write_audiofile(temp_audio, codec='pcm_s16le')
             
             # Transcription (Langue française forcée)
             result = model.transcribe(temp_audio, language="fr", fp16=False)
@@ -59,7 +60,7 @@ def main():
                 end_glob = format_timestamp(seg["end"] + current_time)
                 f.write(f"[{start_glob} - {end_glob}] {seg['text'].strip()}\n")
             
-            f.flush() # Sauvegarde après chaque morceau
+            f.flush() 
             
             # Nettoyage
             if os.path.exists(temp_audio):
@@ -69,7 +70,7 @@ def main():
             print(f">>> Progression : {round((current_time/duration)*100, 1)}%")
 
     video.close()
-    print(f"\nTerminé ! Ton fichier est ici : {output_file}")
+    print(f"\nFini ! Résultat : {output_file}")
 
 if __name__ == "__main__":
     main()
